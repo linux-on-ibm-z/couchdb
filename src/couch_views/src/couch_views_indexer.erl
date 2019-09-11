@@ -101,6 +101,7 @@ update(#{} = Db, Mrst0, State0) ->
 
         DocAcc1 = fetch_docs(TxDb, DocAcc),
         {Mrst1, MappedDocs} = map_docs(Mrst0, DocAcc1),
+        Results = run_reduce(Mrst1, MappedDocs),
         write_docs(TxDb, Mrst1, MappedDocs, State2),
 
         case Count < Limit of
@@ -207,6 +208,10 @@ map_docs(Mrst, Docs) ->
     end, Deleted1 ++ NotDeleted1),
 
     {Mrst1, MappedDocs}.
+
+
+run_reduce(Mrst, MappedResults) ->
+    couch_views_reduce:run_reduce(Mrst, MappedResults).
 
 
 write_docs(TxDb, Mrst, Docs, State) ->
