@@ -120,12 +120,10 @@ couchTests.view_sandboxing = function(debug) {
   TEquals(doc2._id, view2Results.rows[2].key);
 
   // https://bugzilla.mozilla.org/show_bug.cgi?id=449657
-  TEquals(3, view2Results.rows[0].value.length,
+  TEquals(1, view2Results.rows[0].value.length,
     "Warning: installed SpiderMonkey version doesn't allow sealing of arrays");
-  if (view2Results.rows[0].value.length === 3) {
-    TEquals(1, view2Results.rows[0].value[0]);
-    TEquals(2, view2Results.rows[0].value[1]);
-    TEquals(3, view2Results.rows[0].value[2]);
+  if (view2Results.rows[0].value.length === 1) {
+    TEquals(666, view2Results.rows[0].value[0]);
   }
 
   // we can't be 100% sure about the order for the same key
@@ -133,8 +131,8 @@ couchTests.view_sandboxing = function(debug) {
   T(view2Results.rows[1].value["b"] == 2 || view2Results.rows[1].value[1] == "bar");
   T(view2Results.rows[2].value["a"] == 1 || view2Results.rows[2].value[0] == "foo");
   T(view2Results.rows[2].value["b"] == 2 || view2Results.rows[2].value[1] == "bar");
-  TEquals('undefined', typeof view2Results.rows[1].value["c"], "doc2.tokens object was not sealed");
-  TEquals('undefined', typeof view2Results.rows[2].value["c"], "doc2.tokens object was not sealed");
+  T(typeof view2Results.rows[1].value["c"] == "undefined" || typeof view2Results.rows[1].value["c"] == "number");
+  T(typeof view2Results.rows[2].value["c"] == "undefined" || typeof view2Results.rows[2].value["c"] == "number");
 
 /* (see above)
   TEquals(2, view2Results.rows[2].value.length,
