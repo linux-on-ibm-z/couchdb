@@ -116,6 +116,14 @@ handle_node_req(#httpd{method='POST', path_parts=[_, Node, <<"_restart">>]}=Req)
     send_json(Req, 200, {[{ok, true}]});
 handle_node_req(#httpd{path_parts=[_, _Node, <<"_restart">>]}=Req) ->
     send_method_not_allowed(Req, "POST");
+
+% GET /_node/$node/_all_dbs
+handle_node_req(#httpd{method='GET', path_parts=[_, Node, <<"_all_dbs">>]}=Req) ->
+    {ok, DbNames} = call_node(Node, couch_server, all_databases, []),
+    send_json(Req, DbNames);
+handle_node_req(#httpd{path_parts=[_, _Node, <<"_all_dbs">>]}=Req) ->
+    send_method_not_allowed(Req, "GET");
+
 handle_node_req(#httpd{path_parts=[_]}=Req) ->
     chttpd:send_error(Req, {bad_request, <<"Incomplete path to _node request">>});
 handle_node_req(#httpd{path_parts=[_, _Node]}=Req) ->
