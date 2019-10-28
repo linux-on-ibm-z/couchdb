@@ -101,8 +101,8 @@ update(#{} = Db, Mrst0, State0) ->
 
         DocAcc1 = fetch_docs(TxDb, DocAcc),
         {Mrst1, MappedDocs} = map_docs(Mrst0, DocAcc1),
-        Results = run_reduce(Mrst1, MappedDocs),
-        write_docs(TxDb, Mrst1, MappedDocs, State2),
+        MappedReducedDocs = run_reduce(Mrst1, MappedDocs),
+        write_docs(TxDb, Mrst1, MappedReducedDocs, State2),
 
         case Count < Limit of
             true ->

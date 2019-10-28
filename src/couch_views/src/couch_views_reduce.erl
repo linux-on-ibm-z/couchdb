@@ -26,7 +26,7 @@
 -include_lib("fabric/include/fabric2.hrl").
 
 
--define(LEVEL_FAN_POW, 4).
+-define(LEVEL_FAN_POW, 1).
 -define(MAX_SKIP_LIST_LEVELS, 6).
 
 
@@ -84,7 +84,6 @@ read_reduce(Db, Sig, ViewId, UserCallback, UserAcc0, Args) ->
             args => Args,
             callback => UserCallback,
             reduce_idx_prefix => ReduceIdxPrefix,
-            next => key,
             rows => []
         },
 
@@ -111,31 +110,19 @@ args_to_fdb_opts(#mrargs{} = Args) ->
     ok.
 
 
-fold_fwd_cb({FullEncodedKey, EV}, #{next := key} = Acc) ->
-    #{
-        reduce_idx_prefix := ReduceIdxPrefix
-    } = Acc,
-
-    {Level, EK, ?VIEW_ROW_KEY}
-        = erlfdb_tuple:unpack(FullEncodedKey, ReduceIdxPrefix),
-
-%%    Key = couch_views_encoding:decode(EV),
-    Val = couch_views_encoding:decode(EV),
-    Acc#{next := value, key := Val};
-
-fold_fwd_cb({FullEncodedKey, EV}, #{next := value} = Acc) ->
+fold_fwd_cb({FullEncodedKey, EV}, Acc) ->
     #{
         reduce_idx_prefix := ReduceIdxPrefix,
-        rows := Rows,
-        key := Key
+        rows := Rows
     } = Acc,
 
-    {Level, EK, ?VIEW_ROW_VALUE}
+    {_Level, _EK}
         = erlfdb_tuple:unpack(FullEncodedKey, ReduceIdxPrefix),
+    {EK, EV1} = erlfdb_tuple:unpack(EV),
+    Key = couch_views_encoding:decode(EK),
+    Val = couch_views_encoding:decode(EV1),
 
-%%    Key = couch_views_encoding:decode(EV),
-    Val = couch_views_encoding:decode(EV),
-    Acc#{next := key, key := undefined, rows := Rows ++ [{Key, Val}]}.
+    Acc#{key := Val, rows := Rows ++ [{Key, Val}]}.
 
 
 run_reduce(#mrst{views = Views } = Mrst, MappedResults) ->
@@ -219,8 +206,8 @@ update_reduce_idx(TxDb, Sig, ViewId, _DocId, _ExistingKeys, ReduceResult) ->
     create_skip_list(TxDb, ?MAX_SKIP_LIST_LEVELS, ViewOpts),
 
     lists:foreach(fun ({Key, Val}) ->
-        io:format("RESULTS KV ~p ~p ~n", [Key, Val]),
-        add_kv_to_skip_list(TxDb, ?MAX_SKIP_LIST_LEVELS, ViewOpts, Key, Val)
+        io:format("RESULTS KV ~p ~p ~n", [Key, Val])
+%%        add_kv_to_skip_list(TxDb, ?MAX_SKIP_LIST_LEVELS, ViewOpts, Key, Val)
     end, ReduceResult).
 
 
@@ -241,21 +228,9 @@ create_skip_list(Db, MaxLevel, #{} = ViewOpts) ->
         end, Levels)
     end).
 
-%% This sucks but its simple for now
-should_add_key_to_level(0, _, _) ->
-    true;
 
-should_add_key_to_level(?MAX_SKIP_LIST_LEVELS, _, _) ->
-    false;
-
-should_add_key_to_level(_, _, false) ->
-    false;
-
-should_add_key_to_level(_, _Key, _Prev) ->
-    crypto:rand_uniform(0, 2) == 0.
-
-%%should_add_key_to_level(Level, Key) ->
-%%    erlang:phash2(Key) band ((1 bsl (Level * ?LEVEL_FAN_POW)) -1) == 0.
+should_add_key_to_level(Level, Key) ->
+    (erlang:phash2(Key) band ((1 bsl (Level * ?LEVEL_FAN_POW)) -1)) == 0.
 %%    keyHash & ((1 << (level * LEVEL_FAN_POW)) - 1)) != 0
 
 
@@ -270,20 +245,18 @@ add_kv_to_skip_list(Db, MaxLevel, #{} = ViewOpts, Key, Val) ->
     ReduceIdxPrefix = reduce_skip_list_idx_prefix(DbPrefix, Sig, ViewId),
 
     fabric2_fdb:transactional(Db, fun(TxDb) ->
-        lists:foldl(fun(Level, PrevCoinFlip) ->
+        lists:foldl(fun(Level) ->
             io:format("PROCESS ~p ~p ~p ~n", [Level, Key, Val]),
             {PrevKey, PrevVal} = get_previous_key(TxDb, ReduceIdxPrefix, Level, Key),
             io:format("PREV VALS ~p ~p ~n", [PrevKey, PrevVal]),
-            case should_add_key_to_level(Level, Key, PrevCoinFlip) of
+            case should_add_key_to_level(Level, Key) of
                 true ->
                     io:format("Adding ~p ~p ~n", [Level, Key]),
-                    add_kv(Db, ReduceIdxPrefix, Level, Key, Val),
-                    true;
+                    add_kv(Db, ReduceIdxPrefix, Level, Key, Val);
                 false ->
                     {PrevKey, NewVal} = rereduce(<<"_stats">>, {PrevKey, PrevVal}, {Key, Val}),
                     io:format("RE_REDUCE ~p ~p ~p ~p ~n", [Level, Key, PrevKey, NewVal]),
-                    add_kv(Db, ReduceIdxPrefix, Level, PrevKey, NewVal),
-                    false
+                    add_kv(Db, ReduceIdxPrefix, Level, PrevKey, NewVal)
             end
         end, true, Levels)
     end).
@@ -297,13 +270,20 @@ rereduce(<<"_stats">>, {PrevKey, PrevVal}, {_Key, Val}) ->
 
 
 reduce_skip_list_idx_prefix(DbPrefix, Sig, ViewId) ->
-    Key = {?DB_VIEWS, Sig, ?VIEW_REDUCE_SK_RANGE, ViewId},
+    Key = {?DB_VIEWS, Sig, ?VIEW_REDUCE_RANGE, ViewId},
     erlfdb_tuple:pack(Key, DbPrefix).
 
 
-reduce_idx_key(ReduceIdxPrefix, SkipLevel, ReduceKey, RowType) ->
-    Key = {SkipLevel, ReduceKey, RowType},
-    erlfdb_tuple:pack(Key, ReduceIdxPrefix).
+create_key(ReduceIdxPrefix, SkipLevel, Key) ->
+    EK = couch_views_encoding:encode(Key, key),
+    LevelKey = {SkipLevel, EK},
+    erlfdb_tuple:pack(LevelKey, ReduceIdxPrefix).
+
+
+create_value(Key, Val) ->
+    EK = couch_views_encoding:encode(Key),
+    EV = couch_views_encoding:encode(Val),
+    erlfdb_tuple:pack({EK, EV}).
 
 
 add_kv(TxDb, ReduceIdxPrefix, Level, Key, Val) ->
@@ -311,14 +291,10 @@ add_kv(TxDb, ReduceIdxPrefix, Level, Key, Val) ->
         tx := Tx
     } = TxDb,
 
-    EK = couch_views_encoding:encode(Key, key),
-    EVK = couch_views_encoding:encode(Key),
-    EV = couch_views_encoding:encode(Val),
+    LevelKey = create_key(ReduceIdxPrefix, Level, Key),
+    EV = create_value(Key, Val),
 
-    KK = reduce_idx_key(ReduceIdxPrefix, Level, EK, ?VIEW_ROW_KEY),
-    VK = reduce_idx_key(ReduceIdxPrefix, Level, EK, ?VIEW_ROW_VALUE),
-    ok = erlfdb:set(Tx, KK, EVK),
-    ok = erlfdb:set(Tx, VK, EV).
+    ok = erlfdb:set(Tx, LevelKey, EV).
 
 
 get_previous_key(TxDb, ReduceIdxPrefix, Level, Key) ->

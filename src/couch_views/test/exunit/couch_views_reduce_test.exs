@@ -8,7 +8,7 @@ defmodule CouchViewsReduceTest do
   alias Couch.Test.Setup.Step
 
   setup_all do
-    test_ctx = :test_util.start_couch([:fabric, :couch_views, :couch_jobs])
+    test_ctx = :test_util.start_couch([:fabric, :couch_js, :couch_views, :couch_jobs])
 
     on_exit(fn ->
       :test_util.stop_couch(test_ctx)
@@ -40,30 +40,30 @@ defmodule CouchViewsReduceTest do
     }
   end
 
-  #  test "group=true count reduce", context do
-  #    args = %{
-  #      :reduce => true,
-  #      :group => true
-  #      #            :limit => 9
-  #    }
-  #
-  #    {:ok, res} = run_query(context, args, "baz")
-  #    IO.inspect(res, label: "OUT")
-  #
-  #    assert res == [
-  #             {:row, [key: 1, value: 2]},
-  #             {:row, [key: 2, value: 2]},
-  #             {:row, [key: 3, value: 2]},
-  #             {:row, [key: [1, 1], value: 1]},
-  #             {:row, [key: [1, 1, 5], value: 1]},
-  #             {:row, [key: [1, 2, 6], value: 1]},
-  #             {:row, [key: [2, 1], value: 1]},
-  #             {:row, [key: [2, 3, 6], value: 1]},
-  #             {:row, [key: [3, 1], value: 1]},
-  #             {:row, [key: [3, 1, 5], value: 1]},
-  #             {:row, [key: [3, 4, 5], value: 1]}
-  #           ]
-  #  end
+  test "group=true count reduce", context do
+    args = %{
+      :reduce => true,
+      :group => true
+      #            :limit => 9
+    }
+
+    {:ok, res} = run_query(context, args, "baz")
+    IO.inspect(res, label: "OUT")
+
+    assert res == [
+             {:row, [key: 1, value: 2]},
+             {:row, [key: 2, value: 2]},
+             {:row, [key: 3, value: 2]},
+             {:row, [key: [1, 1], value: 1]},
+             {:row, [key: [1, 1, 5], value: 1]},
+             {:row, [key: [1, 2, 6], value: 1]},
+             {:row, [key: [2, 1], value: 1]},
+             {:row, [key: [2, 3, 6], value: 1]},
+             {:row, [key: [3, 1], value: 1]},
+             {:row, [key: [3, 1, 5], value: 1]},
+             {:row, [key: [3, 4, 5], value: 1]}
+           ]
+  end
 
   #  test "group=1 count reduce", context do
   #    args = %{
@@ -150,20 +150,20 @@ defmodule CouchViewsReduceTest do
   #           ]
   #  end
 
-  test "group_level=0 _max reduce", context do
-    args = %{
-      :reduce => true,
-      :group_level => 0
-      #            :limit => 9
-    }
-
-    {:ok, res} = run_query(context, args, "max")
-    IO.inspect(res, label: "OUT")
-
-    assert res == [
-             {:row, [key: :null, value: 3]}
-           ]
-  end
+  #  test "group_level=0 _sum reduce", context do
+  #    args = %{
+  #      :reduce => true,
+  #      :group_level => 0
+  #      #            :limit => 9
+  #    }
+  #
+  #    {:ok, res} = run_query(context, args, "max")
+  #    IO.inspect(res, label: "OUT")
+  #
+  #    assert res == [
+  #             {:row, [key: :null, value: 3]}
+  #           ]
+  #  end
 
   defp run_query(context, args, view) do
     db = context[:db]
@@ -217,70 +217,68 @@ defmodule CouchViewsReduceTest do
   end
 
   defp create_ddoc() do
-    :couch_doc.from_json_obj(
-      {[
-         {"_id", "_design/bar"},
-         {"views",
-          {[
-#             {"baz",
-#              {[
-#                 {"map",
-#                  """
-#                  function(doc) {
-#                    emit(doc.value, doc.value);
-#                    emit(doc.value, doc.value);
-#                    emit([doc.value, 1], doc.value);
-#                    emit([doc.value, doc.value + 1, doc.group.length], doc.value);
-#
-#                    if (doc.value === 3) {
-#                      emit([1, 1, 5], 1);
-#                      emit([doc.value, 1, 5], 1);
-#                    }
-#                   }
-#                  """},
-#                 {"reduce", "_count"}
-#               ]}},
-#             {"boom",
-#              {[
-#                 {"map",
-#                  """
-#                  function(doc) {
-#                      var month = 1;
-#                      if (doc.value % 2) {
-#                          month = 2;
-#                      }
-#                      emit([2019, month, doc.value], doc.value);
-#                  }
-#                  """},
-#                 {"reduce", "_count"}
-#               ]}},
-             {"max",
-              {[
-                 {"map",
-                  """
-                  function(doc) {
-                      //emit(doc.value, doc.value);
-                      //emit([doc.value, 1], doc.value);
-                      //emit([doc.value, doc.value + 1, doc.group.length], doc.value);
-                        emit(1, 1);
-                        emit(2, 2);
-                        emit(3, 3);
-                        emit(4, 4);
+    :couch_doc.from_json_obj({[
+       {"_id", "_design/bar"},
+       {"views",
+        {[
+           {"baz",
+            {[
+               {"map",
+                """
+                function(doc) {
+                  emit(doc.value, doc.value);
+                  emit(doc.value, doc.value);
+                  emit([doc.value, 1], doc.value);
+                  emit([doc.value, doc.value + 1, doc.group.length], doc.value);
 
-                       emit([2019, 2, 2], 1);
-                       emit([2019, 3, 3], 2);
-                       emit([2019, 3, 3], 3);
-                       emit([2019, 4, 3], 4);
-                       emit([2019, 5, 3], 6);
-                      if (doc.value === 3) {
-                       //emit([doc.value, 1, 5], 1);
-                      }
+                  if (doc.value === 3) {
+                    emit([1, 1, 5], 1);
+                    emit([doc.value, 1, 5], 1);
                   }
-                  """},
-                 {"reduce", "_stats"}
-               ]}}
-           ]}}
-       ]}
-    )
+                 }
+                """},
+               {"reduce", "_count"}
+             ]}}
+           #             {"boom",
+           #              {[
+           #                 {"map",
+           #                  """
+           #                  function(doc) {
+           #                      var month = 1;
+           #                      if (doc.value % 2) {
+           #                          month = 2;
+           #                      }
+           #                      emit([2019, month, doc.value], doc.value);
+           #                  }
+           #                  """},
+           #                 {"reduce", "_count"}
+           #               ]}},
+           #             {"max",
+           #              {[
+           #                 {"map",
+           #                  """
+           #                  function(doc) {
+           #                      //emit(doc.value, doc.value);
+           #                      //emit([doc.value, 1], doc.value);
+           #                      //emit([doc.value, doc.value + 1, doc.group.length], doc.value);
+           #                        emit(1, 1);
+           #                        emit(2, 2);
+           #                        emit(3, 3);
+           #                        emit(4, 4);
+           #
+           #                       emit([2019, 2, 2], 1);
+           #                       emit([2019, 3, 3], 2);
+           #                       emit([2019, 3, 3], 3);
+           #                       emit([2019, 4, 3], 4);
+           #                       emit([2019, 5, 3], 6);
+           #                      if (doc.value === 3) {
+           #                       //emit([doc.value, 1, 5], 1);
+           #                      }
+           #                  }
+           #                  """},
+           #                 {"reduce", "_stats"}
+           #               ]}}
+         ]}}
+     ]})
   end
 end

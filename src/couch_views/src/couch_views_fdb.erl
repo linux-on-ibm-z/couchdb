@@ -20,7 +20,6 @@
     get_kv_size/3,
 
     fold_map_idx/6,
-    fold_reduce_idx/6,
 
     write_doc/4
 ]).
@@ -183,8 +182,7 @@ write_doc(TxDb, Sig, ViewIds, Doc) ->
         end,
         update_map_idx(TxDb, Sig, ViewId, DocId, ExistingKeys, NewRows),
         couch_views_reduce:update_reduce_idx(TxDb, Sig, ViewId, DocId,
-            ExistingKeys, ReduceResult),
-        update_reduce_idx(TxDb, Sig, ViewId, DocId, ExistingKeys, ReduceResult)
+            ExistingKeys, ReduceResult)
     end, lists:zip3(ViewIds, Results, ReduceResults)).
 
 
@@ -357,53 +355,6 @@ update_map_idx(TxDb, Sig, ViewId, DocId, ExistingKeys, NewRows) ->
     end, KVsToAdd).
 
 
-update_reduce_idx(TxDb, Sig, ViewId, DocId, ExistingKeys, NewRows) ->
-    #{
-        tx := Tx,
-        db_prefix := DbPrefix
-    } = TxDb,
-
-%%    Unique = lists:usort([K || {K, _V} <- NewRows]),
-
-%%    KeysToRem = ExistingKeys -- Unique,
-%%    lists:foreach(fun(RemKey) ->
-%%        {Start, End} = reduce_idx_range(DbPrefix, Sig, ViewId, RemKey, DocId),
-%%        ok = erlfdb:clear_range(Tx, Start, End)
-%%    end, KeysToRem),
-%%
-    {ExactKVsToAdd, GroupKVsToAdd} = process_reduce_rows(NewRows),
-    ReduceIdxPrefix = reduce_idx_prefix(DbPrefix, Sig, ViewId),
-    add_reduce_kvs(Tx, ReduceIdxPrefix, ExactKVsToAdd, ?VIEW_REDUCE_EXACT),
-    add_reduce_kvs(Tx, ReduceIdxPrefix, GroupKVsToAdd, ?VIEW_REDUCE_GROUP).
-
-
-add_reduce_kvs(Tx, ReduceIdxPrefix, KVsToAdd, ReduceType) ->
-    lists:foreach(fun({Key1, Key2, Val, GroupLevel}) ->
-        KK = reduce_idx_key(ReduceIdxPrefix, Key1, GroupLevel,
-            ReduceType, ?VIEW_ROW_KEY),
-        VK = reduce_idx_key(ReduceIdxPrefix, Key1, GroupLevel,
-            ReduceType, ?VIEW_ROW_VALUE),
-        ok = erlfdb:set(Tx, KK, Key2),
-        ok = erlfdb:add(Tx, VK, Val)
-    end, KVsToAdd).
-
-
-reduce_idx_prefix(DbPrefix, Sig, ViewId) ->
-    Key = {?DB_VIEWS, Sig, ?VIEW_REDUCE_RANGE, ViewId},
-    erlfdb_tuple:pack(Key, DbPrefix).
-
-
-reduce_idx_key(ReduceIdxPrefix, ReduceKey, GroupLevel, ReduceType, RowType) ->
-    Key = {ReduceKey, GroupLevel, ReduceType, RowType},
-    erlfdb_tuple:pack(Key, ReduceIdxPrefix).
-
-
-%%reduce_idx_range(DbPrefix, Sig, ViewId, GroupKey, DocId) ->
-%%    Encoded = couch_views_encoding:encode(MapKey, key),
-%%    Key = {?DB_VIEWS, Sig, ?VIEW_MAP_RANGE, ViewId, {Encoded, DocId}},
-%%    erlfdb_tuple:range(Key, DbPrefix).
-
-
 get_view_keys(TxDb, Sig, DocId) ->
     #{
         tx := Tx,
@@ -495,47 +446,6 @@ process_rows(Rows) ->
         end, {0, []}, Vals1),
         Labeled ++ DAcc
     end, [], Grouped).
-
-
-process_reduce_rows(Rows) ->
-    ReduceExact = encode_reduce_rows(Rows),
-    ReduceGroups = lists:foldl(fun({Key, Val}, Groupings) ->
-        Out = create_grouping(Key, Val, [], Groupings),
-        Out
-    end, #{}, Rows),
-    ReduceGroups1 = encode_reduce_rows(maps:to_list(ReduceGroups)),
-    {ReduceExact, ReduceGroups1}.
-
-
-encode_reduce_rows(Rows) ->
-    lists:map(fun({K, V}) ->
-        EK1 = couch_views_encoding:encode(K, key),
-        EK2 = couch_views_encoding:encode(K, value),
-        {EK1, EK2, V, group_level(K)}
-    end, Rows).
-
-
-group_level(Key) when is_list(Key) ->
-    length(Key);
-
-group_level(_Key) ->
-    1.
-
-
-create_grouping([], _Val, _, Groupings) ->
-    Groupings;
-
-create_grouping([Head | Rest], Val, Key, Groupings) ->
-    Key1 = Key ++ [Head],
-    Groupings1 = maps:update_with(Key1, fun(OldVal) ->
-        OldVal + Val
-        end, Val, Groupings),
-    create_grouping(Rest, Val, Key1, Groupings1);
-
-create_grouping(Key, Val, _, Groupings) ->
-    maps:update_with(Key, fun(OldVal) ->
-        OldVal + Val
-    end, Val, Groupings).
 
 
 calculate_row_size(Rows) ->
