@@ -13,6 +13,7 @@
 -module(couch_expiring_cache_fdb).
 
 -export([
+    clear_expired_range/2,
     get_range/2,
     cache_prefix/1,
     layer_prefix/1,
@@ -22,11 +23,11 @@
     %% delete_all/1,
     insert/5,
     lookup/2,
-    remove/2
+    remove_primary/2
 ]).
 
 
--define(DEFAULT_LIMIT, 100000).
+-define(DEFAULT_LIMIT, 100000). % How to enforce?
 
 -define(XC, 53). % coordinate with fabric2.hrl
 -define(PK, 1).
@@ -78,12 +79,32 @@ get_range(EndTS, Limit) when Limit > 0 ->
 
 remove_exp(ExpiresTS, Name, Key) ->
     fabric2_fdb:transactional(fun(Tx) ->
-        Prefix = layer_prefix(Tx),
+        clear_expired(Tx, ExpiresTS, Name, Key, layer_prefix(Tx))
+    end).
 
-        PK = erlfdb_tuple:pack({?XC, ?PK, Name, Key}, Prefix),
-        XK = erlfdb_tuple:pack({?XC, ?EXP, ExpiresTS, Name, Key}, Prefix),
-        ok = erlfdb:clear(Tx, PK),
-        ok = erlfdb:clear(Tx, XK)
+
+clear_expired(Tx, ExpiresTS, Name, Key, Prefix) ->
+    PK = primary_key(Name, Key, Prefix),
+    XK = expiry_key(ExpiresTS, Name, Key, Prefix),
+    ok = erlfdb:clear(Tx, PK),
+    ok = erlfdb:clear(Tx, XK).
+
+
+clear_expired_range(EndTS, Limit) when Limit > 0 ->
+    Callback = fun
+        (TS, 0) when TS > 0 -> TS;
+        (TS, Acc) -> min(TS, Acc)
+    end,
+    fabric2_fdb:transactional(fun(Tx) ->
+        LayerPrefix = layer_prefix(Tx),
+        ExpiresPrefix = erlfdb_tuple:pack({?XC, ?EXP}, LayerPrefix),
+        fabric2_fdb:fold_range({tx, Tx}, ExpiresPrefix, fun({K, _V}, Acc) ->
+            Unpacked = erlfdb_tuple:unpack(K, ExpiresPrefix),
+            couch_log:info("~p clearing ~p", [?MODULE, Unpacked]),
+            {ExpiresTS, Name, Key} = Unpacked,
+            clear_expired(Tx, ExpiresTS, Name, Key, LayerPrefix),
+            Callback(ExpiresTS, Acc)
+        end, 0, [{end_key, EndTS}, {limit, Limit}])
     end).
 
 
@@ -91,11 +112,11 @@ insert(Name, Key, Val, StaleTS, ExpiresTS) ->
     fabric2_fdb:transactional(fun(Tx) ->
         Prefix = layer_prefix(Tx),
 
-        PK = erlfdb_tuple:pack({?XC, ?PK, Name, Key}, Prefix),
+        PK = primary_key(Name, Key, Prefix),
         PV = erlfdb_tuple:pack({Val, StaleTS, ExpiresTS}),
         ok = erlfdb:set(Tx, PK, PV),
 
-        XK = erlfdb_tuple:pack({?XC, ?EXP, ExpiresTS, Name, Key}, Prefix),
+        XK = expiry_key(ExpiresTS, Name, Key, Prefix),
         XV = erlfdb_tuple:pack({}),
         ok = erlfdb:set(Tx, XK, XV)
     end).
@@ -105,7 +126,7 @@ lookup(Name, Key) ->
     fabric2_fdb:transactional(fun(Tx) ->
         Prefix = layer_prefix(Tx),
 
-        PK = erlfdb_tuple:pack({?XC, ?PK, Name, Key}, Prefix),
+        PK = primary_key(Name, Key, Prefix),
         case erlfdb:wait(erlfdb:get(Tx, PK)) of
             not_found ->
                 not_found;
@@ -121,13 +142,19 @@ lookup(Name, Key) ->
     end).
 
 
-remove(Name, Key) ->
+remove_primary(Name, Key) ->
     fabric2_fdb:transactional(fun(Tx) ->
-        Prefix = layer_prefix(Tx),
-
-        PK = erlfdb_tuple:pack({?XC, ?PK, Name, Key}, Prefix),
+        PK = primary_key(Name, Key, layer_prefix(Tx)),
         erlfdb:clear(Tx, PK)
     end).
+
+
+primary_key(Name, Key, Prefix) ->
+    erlfdb_tuple:pack({?XC, ?PK, Name, Key}, Prefix).
+
+
+expiry_key(ExpiresTS, Name, Key, Prefix) ->
+    erlfdb_tuple:pack({?XC, ?EXP, ExpiresTS, Name, Key}, Prefix).
 
 
 layer_prefix(Tx) ->

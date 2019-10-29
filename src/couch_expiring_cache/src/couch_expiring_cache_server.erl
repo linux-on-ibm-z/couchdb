@@ -28,8 +28,9 @@
 ]).
 
 
--define(PERIOD_DEFAULT, 10).
--define(MAX_JITTER_DEFAULT, 1).
+-define(DEFAULT_BATCH, 1000).
+-define(DEFAULT_PERIOD_MS, 5000).
+-define(DEFAULT_MAX_JITTER_MS, 1000).
 
 
 start_link() ->
@@ -38,7 +39,11 @@ start_link() ->
 
 init(_) ->
     Ref = schedule_remove_expired(),
-    {ok, #{timer_ref => Ref}}.
+    {ok, #{
+        timer_ref => Ref,
+        lag => 0,
+        last_expiration => 0,
+        min_ts => 0}}.
 
 
 terminate(_, _) ->
@@ -54,9 +59,14 @@ handle_cast(Msg, St) ->
 
 
 handle_info(remove_expired, St) ->
-    ok = remove_expired(),
+    Now = erlang:system_time(second),
+    MinTS = remove_expired(Now),
     Ref = schedule_remove_expired(),
-    {noreply, St#{timer_ref => Ref}};
+    {noreply, St#{
+        timer_ref => Ref,
+        lag => Now - MinTS,
+        last_expiration => Now,
+        min_ts => MinTS}};
 
 handle_info(Msg, St) ->
     {stop, {bad_info, Msg}, St}.
@@ -66,33 +76,27 @@ code_change(_OldVsn, St, _Extra) ->
     {ok, St}.
 
 
-remove_expired() ->
-    Now = erlang:system_time(second),
-    Limit = 10,
-    Expired = couch_expiring_cache_fdb:get_range(Now, Limit),
-    case Expired of
-        [] ->
-            ok;
-        _ ->
-            lists:foreach(fun({TS, Name, Key} = Exp) ->
-                couch_log:info("~p remove_expired ~p", [?MODULE, Exp]),
-                couch_expiring_cache_fdb:remove_exp(TS, Name, Key)
-            end, Expired)
-    end.
+remove_expired(EndTS) ->
+    couch_expiring_cache_fdb:clear_expired_range(EndTS, batch_size()).
 
 
 schedule_remove_expired() ->
-    Timeout = get_period_sec(),
-    MaxJitter = max(Timeout div 2, get_max_jitter_sec()),
+    Timeout = period_ms(),
+    MaxJitter = max(Timeout div 2, max_jitter_ms()),
     Wait = Timeout + rand:uniform(max(1, MaxJitter)),
-    erlang:send_after(Wait * 1000, self(), remove_expired).
+    erlang:send_after(Wait, self(), remove_expired).
 
 
-get_period_sec() ->
-    config:get_integer("couch_expiring_cache", "period_sec",
-        ?PERIOD_DEFAULT).
+period_ms() ->
+    config:get_integer("couch_expiring_cache", "period_ms",
+        ?DEFAULT_PERIOD_MS).
 
 
-get_max_jitter_sec() ->
-    config:get_integer("couch_expiring_cache", "max_jitter_sec",
-        ?MAX_JITTER_DEFAULT).
+max_jitter_ms() ->
+    config:get_integer("couch_expiring_cache", "max_jitter_ms",
+        ?DEFAULT_MAX_JITTER_MS).
+
+
+batch_size() ->
+    config:get_integer("couch_expiring_cache", "batch_size",
+        ?DEFAULT_BATCH).
