@@ -221,10 +221,16 @@ write_docs(TxDb, Mrst, Docs, State) ->
     } = Mrst,
 
     #{
-        last_seq := LastSeq
+        last_seq := LastSeq,
+        view_seq := ViewSeq
     } = State,
 
     ViewIds = [View#mrview.id_num || View <- Views],
+
+    %%  First build of the view
+    if ViewSeq /= <<>> -> ok; true ->
+        couch_views_reduce:setup_reduce_indexes(TxDb, Sig, ViewIds)
+    end,
 
     lists:foreach(fun(Doc) ->
         couch_views_fdb:write_doc(TxDb, Sig, ViewIds, Doc)

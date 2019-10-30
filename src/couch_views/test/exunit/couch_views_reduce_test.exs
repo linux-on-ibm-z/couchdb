@@ -40,29 +40,37 @@ defmodule CouchViewsReduceTest do
     }
   end
 
-  test "group=true count reduce", context do
-    args = %{
-      :reduce => true,
-      :group => true
-      #            :limit => 9
-    }
+#  test "group=true count reduce with limit", context do
+#    args = %{
+#      :reduce => true,
+#      :group => true,
+#      :limit => 3
+#    }
+#
+#    {:ok, res} = run_query(context, args, "dates")
+#    IO.inspect(res, label: "OUT")
+#
+#    assert res == [
+#             {:row, [key: [2017, 3, 1], value: 1]},
+#             {:row, [key: [2017, 4, 1], value: 1]},
+#             {:row, [key: [2017, 4, 15], value: 1]}
+#           ]
+#  end
 
-    {:ok, res} = run_query(context, args, "baz")
-    IO.inspect(res, label: "OUT")
+  test "group_level=1 count reduce", context do
+      args = %{
+          :reduce => true,
+          :group => true,
+      }
 
-    assert res == [
-             {:row, [key: 1, value: 2]},
-             {:row, [key: 2, value: 2]},
-             {:row, [key: 3, value: 2]},
-             {:row, [key: [1, 1], value: 1]},
-             {:row, [key: [1, 1, 5], value: 1]},
-             {:row, [key: [1, 2, 6], value: 1]},
-             {:row, [key: [2, 1], value: 1]},
-             {:row, [key: [2, 3, 6], value: 1]},
-             {:row, [key: [3, 1], value: 1]},
-             {:row, [key: [3, 1, 5], value: 1]},
-             {:row, [key: [3, 4, 5], value: 1]}
-           ]
+      {:ok, res} = run_query(context, args, "dates")
+      IO.inspect(res, label: "OUT")
+
+      assert res == [
+                 {:row, [key: [2017], value: 1]},
+                 {:row, [key: [2018], value: 1]},
+                 {:row, [key: [2019], value: 1]}
+             ]
   end
 
   #  test "group=1 count reduce", context do
@@ -173,6 +181,7 @@ defmodule CouchViewsReduceTest do
   end
 
   def default_cb(:complete, acc) do
+    IO.inspect(acc, label: "complete")
     {:ok, Enum.reverse(acc)}
   end
 
@@ -197,7 +206,22 @@ defmodule CouchViewsReduceTest do
   end
 
   defp create_docs() do
-    for i <- 1..1 do
+    dates = [
+      [2017, 3, 1],
+      [2017, 4, 1],
+      # out of order check
+      [2019, 3, 1],
+      [2017, 4, 15],
+      [2018, 4, 1],
+      [2017, 5, 1],
+      [2018, 3, 1],
+      # duplicate check
+      [2018, 4, 1],
+      [2018, 5, 1],
+      [2019, 4, 1]
+    ]
+
+    for i <- 1..4 do
       group =
         if rem(i, 3) == 0 do
           "first"
@@ -205,14 +229,14 @@ defmodule CouchViewsReduceTest do
           "second"
         end
 
-      :couch_doc.from_json_obj(
-        {[
-           {"_id", "doc-id-#{i}"},
-           {"value", i},
-           {"some", "field"},
-           {"group", group}
-         ]}
-      )
+      :couch_doc.from_json_obj({[
+         {"_id", "doc-id-#{i}"},
+         {"value", i},
+         {"some", "field"},
+         {"group", group},
+         {"date", Enum.at(dates, i - 1)}
+         #           {"timestamp", Enum.at(timestamps, i - 1)}
+       ]})
     end
   end
 
@@ -221,6 +245,16 @@ defmodule CouchViewsReduceTest do
        {"_id", "_design/bar"},
        {"views",
         {[
+           {"dates",
+            {[
+               {"map",
+                """
+                function(doc) {
+                  emit(doc.date, doc.value);
+                 }
+                """},
+               {"reduce", "_count"}
+             ]}},
            {"baz",
             {[
                {"map",

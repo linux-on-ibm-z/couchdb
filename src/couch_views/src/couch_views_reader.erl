@@ -236,36 +236,6 @@ handle_row(DocId, Key, Value, Acc) ->
     UserAcc1 = maybe_stop(UserCallback({row, Row}, UserAcc0)),
     Acc#{acc := UserAcc1}.
 
-handle_reduce_row(_Key, _Value, #{skip := Skip} = Acc) when Skip > 0 ->
-    Acc#{skip := Skip - 1};
-
-handle_reduce_row(Key, Value, Acc) ->
-    io:format("ACC ~p ~n", [Acc]),
-    #{
-        callback := UserCallback,
-        acc := UserAcc0,
-        row_count := RowCount,
-        limit := Limit
-    } = Acc,
-
-    Row = [
-        {key, Key},
-        {value, Value}
-    ],
-
-    RowCountNext = RowCount + 1,
-
-    UserAcc1 = maybe_stop(UserCallback({row, Row}, UserAcc0)),
-    Acc1 = Acc#{acc := UserAcc1, row_count := RowCountNext},
-
-    case RowCountNext == Limit of
-        true ->
-            UserAcc2 = maybe_stop(UserCallback(complete, UserAcc1)),
-            maybe_stop({stop, UserAcc2});
-        false ->
-            Acc1
-    end.
-
 
 get_view_id(Lang, Args, ViewName, Views) ->
     case couch_mrview_util:extract_view(Lang, Args, ViewName, Views) of
