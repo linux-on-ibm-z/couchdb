@@ -148,7 +148,7 @@ write_doc(TxDb, Sig, _ViewIds, #{deleted := true} = Doc) ->
         update_kv_size(TxDb, Sig, ViewId, -TotalSize)
     end, ExistingViewKeys);
 
-write_doc(TxDb, Sig, ViewIds, Doc) ->
+write_doc(TxDb, Sig, ViewsIdFun, Doc) ->
     #{
         id := DocId,
         results := Results,
@@ -161,7 +161,7 @@ write_doc(TxDb, Sig, ViewIds, Doc) ->
 
     %% TODO: handle when there is no reduce
     io:format("REDUCE RESULTS ~p ~n", [ReduceResults]),
-    lists:foreach(fun({ViewId, NewRows, ReduceResult}) ->
+    lists:foreach(fun({{ViewId, Reducer}, NewRows, ReduceResult}) ->
         update_id_idx(TxDb, Sig, ViewId, DocId, NewRows),
 
         ExistingKeys = case lists:keyfind(ViewId, 1, ExistingViewKeys) of
@@ -179,9 +179,9 @@ write_doc(TxDb, Sig, ViewIds, Doc) ->
                 []
         end,
         update_map_idx(TxDb, Sig, ViewId, DocId, ExistingKeys, NewRows),
-        couch_views_reduce_fdb:update_reduce_idx(TxDb, Sig, ViewId, DocId,
+        couch_views_reduce_fdb:update_reduce_idx(TxDb, Sig, ViewId, Reducer, DocId,
             ExistingKeys, ReduceResult)
-    end, lists:zip3(ViewIds, Results, ReduceResults)).
+    end, lists:zip3(ViewsIdFun, Results, ReduceResults)).
 
 
 % For each row in a map view there are two rows stored in

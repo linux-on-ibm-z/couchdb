@@ -40,37 +40,53 @@ defmodule CouchViewsReduceTest do
     }
   end
 
-#  test "group=true count reduce with limit", context do
+  #  test "group=true count reduce with limit", context do
+  #    args = %{
+  #      :reduce => true,
+  #      :group => true,
+  #      :limit => 3
+  #    }
+  #
+  #    {:ok, res} = run_query(context, args, "dates")
+  #    IO.inspect(res, label: "OUT")
+  #
+  #    assert res == [
+  #             {:row, [key: [2017, 3, 1], value: 1]},
+  #             {:row, [key: [2017, 4, 1], value: 1]},
+  #             {:row, [key: [2017, 4, 15], value: 1]}
+  #           ]
+  #  end
+
+#  test "group_level=1 count reduce", context do
 #    args = %{
 #      :reduce => true,
-#      :group => true,
-#      :limit => 3
+#      :group_level => 1
 #    }
 #
-#    {:ok, res} = run_query(context, args, "dates")
+#    {:ok, res} = run_query(context, args, "dates_count")
 #    IO.inspect(res, label: "OUT")
 #
 #    assert res == [
-#             {:row, [key: [2017, 3, 1], value: 1]},
-#             {:row, [key: [2017, 4, 1], value: 1]},
-#             {:row, [key: [2017, 4, 15], value: 1]}
+#             {:row, [key: [2017], value: 4]},
+#             {:row, [key: [2018], value: 3]},
+#             {:row, [key: [2019], value: 2]}
 #           ]
 #  end
 
-  test "group_level=1 count reduce", context do
-      args = %{
-          :reduce => true,
-          :group_level => 1,
-      }
+  test "group_level=1 reduce reduce", context do
+    args = %{
+      :reduce => true,
+      :group_level => 1
+    }
 
-      {:ok, res} = run_query(context, args, "dates")
-      IO.inspect(res, label: "OUT")
+    {:ok, res} = run_query(context, args, "dates_sum")
+    IO.inspect(res, label: "OUT")
 
-      assert res == [
-                 {:row, [key: [2017], value: 4]},
-                 {:row, [key: [2018], value: 3]},
-                 {:row, [key: [2019], value: 2]}
-             ]
+    assert res == [
+             {:row, [key: [2017], value: 31]},
+             {:row, [key: [2018], value: 20]},
+             {:row, [key: [2019], value: 17]}
+           ]
   end
 
   #  test "group=1 count reduce", context do
@@ -207,21 +223,22 @@ defmodule CouchViewsReduceTest do
 
   defp create_docs() do
     dates = [
-      [2017, 3, 1],
-      [2017, 4, 1],
+      {[2017, 3, 1], 9},
+      {[2017, 4, 1], 7},
       # out of order check
-      [2019, 3, 1],
-      [2017, 4, 15],
-      [2018, 4, 1],
-      [2017, 5, 1],
-      [2018, 3, 1],
+      {[2019, 3, 1], 4},
+      {[2017, 4, 15], 6},
+      {[2018, 4, 1], 3},
+      {[2017, 5, 1], 9},
+      {[2018, 3, 1], 6},
       # duplicate check
-      [2018, 4, 1],
-      [2018, 5, 1],
-      [2019, 4, 1]
+      {[2018, 4, 1], 4},
+      {[2018, 5, 1], 7},
+      {[2019, 4, 1], 6},
+      {[2019, 5, 1], 7}
     ]
 
-    for i <- 1..10 do
+    for i <- 1..11 do
       group =
         if rem(i, 3) == 0 do
           "first"
@@ -229,13 +246,18 @@ defmodule CouchViewsReduceTest do
           "second"
         end
 
-      :couch_doc.from_json_obj({[
-         {"_id", "doc-id-#{i}"},
-         {"value", i},
-         {"some", "field"},
-         {"group", group},
-         {"date", Enum.at(dates, i - 1)}
-       ]})
+      {date_key, date_val} = Enum.at(dates, i - 1)
+
+      :couch_doc.from_json_obj(
+        {[
+           {"_id", "doc-id-#{i}"},
+           {"value", i},
+           {"some", "field"},
+           {"group", group},
+           {"date", date_key},
+           {"date_val", date_val}
+         ]}
+      )
     end
   end
 
@@ -244,34 +266,44 @@ defmodule CouchViewsReduceTest do
        {"_id", "_design/bar"},
        {"views",
         {[
-           {"dates",
+           #           {"dates_count",
+           #            {[
+           #               {"map",
+           #                """
+           #                function(doc) {
+           #                  emit(doc.date, doc.value);
+           #                 }
+           #                """},
+           #               {"reduce", "_count"}
+           #             ]}}
+           {"dates_sum",
             {[
                {"map",
                 """
                 function(doc) {
-                  emit(doc.date, doc.value);
-                 }
+                    emit(doc.date, doc.date_val);
+                }
                 """},
-               {"reduce", "_count"}
+               {"reduce", "_sum"}
              ]}}
-#           {"baz",
-#            {[
-#               {"map",
-#                """
-#                function(doc) {
-#                  emit(doc.value, doc.value);
-#                  emit(doc.value, doc.value);
-#                  emit([doc.value, 1], doc.value);
-#                  emit([doc.value, doc.value + 1, doc.group.length], doc.value);
-#
-#                  if (doc.value === 3) {
-#                    emit([1, 1, 5], 1);
-#                    emit([doc.value, 1, 5], 1);
-#                  }
-#                 }
-#                """},
-#               {"reduce", "_count"}
-#             ]}}
+           #           {"baz",
+           #            {[
+           #               {"map",
+           #                """
+           #                function(doc) {
+           #                  emit(doc.value, doc.value);
+           #                  emit(doc.value, doc.value);
+           #                  emit([doc.value, 1], doc.value);
+           #                  emit([doc.value, doc.value + 1, doc.group.length], doc.value);
+           #
+           #                  if (doc.value === 3) {
+           #                    emit([1, 1, 5], 1);
+           #                    emit([doc.value, 1, 5], 1);
+           #                  }
+           #                 }
+           #                """},
+           #               {"reduce", "_count"}
+           #             ]}}
            #             {"boom",
            #              {[
            #                 {"map",

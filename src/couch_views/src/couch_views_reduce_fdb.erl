@@ -17,7 +17,7 @@
 -export([
     fold_level0/8,
     create_skip_list/3,
-    update_reduce_idx/6
+    update_reduce_idx/7
 ]).
 
 
@@ -188,6 +188,14 @@ rereduce(_Reducer, Rows, GroupLevel) when length(Rows) == 1 ->
     GroupKey = group_level_key(Key, GroupLevel),
     {GroupKey, Val};
 
+rereduce(<<"_sum">>, Rows, GroupLevel) ->
+    Sum = lists:foldl(fun ({_, Val}, Acc) ->
+       Val + Acc
+    end, 0, Rows),
+    {Key, _} = hd(Rows),
+    GroupKey = group_level_key(Key, GroupLevel),
+    {GroupKey, Sum};
+
 rereduce(<<"_count">>, Rows, GroupLevel) ->
     Val = length(Rows),
     {Key, _} = hd(Rows),
@@ -210,6 +218,9 @@ group_level_equal(One, Two, GroupLevel) ->
 group_level_key(_Key, 0) ->
     null;
 
+group_level_key(Key, group_true) ->
+    Key;
+
 group_level_key(Key, GroupLevel) when is_list(Key) ->
     lists:sublist(Key, GroupLevel);
 
@@ -230,7 +241,7 @@ unpack_key_value(EncodedValue) ->
 
 
 %% Inserting
-update_reduce_idx(TxDb, Sig, ViewId, _DocId, _ExistingKeys, ReduceResult) ->
+update_reduce_idx(TxDb, Sig, ViewId, Reducer, _DocId, _ExistingKeys, ReduceResult) ->
     #{
         db_prefix := DbPrefix
     } = TxDb,
@@ -238,7 +249,8 @@ update_reduce_idx(TxDb, Sig, ViewId, _DocId, _ExistingKeys, ReduceResult) ->
     ViewOpts = #{
         db_prefix => DbPrefix,
         sig => Sig,
-        view_id => ViewId
+        view_id => ViewId,
+        reducer => Reducer
     },
 
     lists:foreach(fun ({Key, Val}) ->
@@ -269,28 +281,56 @@ add_kv_to_skip_list(Db, MaxLevel, #{} = ViewOpts, Key, Val) ->
     #{
         db_prefix := DbPrefix,
         sig := Sig,
-        view_id := ViewId
+        view_id := ViewId,
+        reducer := Reducer
     } = ViewOpts,
 
-    Levels = lists:seq(0, MaxLevel),
+    Levels = lists:seq(1, MaxLevel),
     ReduceIdxPrefix = reduce_skip_list_idx_prefix(DbPrefix, Sig, ViewId),
     KeyHash = hash_key(Key),
 
     fabric2_fdb:transactional(Db, fun(TxDb) ->
+        Val1 = case get_value(TxDb, ReduceIdxPrefix, 0, Key) of
+            not_found ->
+                Val;
+            ExistingVal ->
+                {_, ReducedVal} = rereduce(Reducer, [{Key, ExistingVal}, {Key, Val}], group_true),
+                ReducedVal
+        end,
+        io:format("VAL1 ~p ~n", [Val1]),
+        add_kv(TxDb, ReduceIdxPrefix, 0, Key, Val1),
+
         lists:foreach(fun(Level) ->
             {PrevKey, PrevVal} = get_previous_key(TxDb, ReduceIdxPrefix, Level, Key),
             io:format("Level ~p K/V ~p ~p PREV KV ~p ~p ~n", [Level, Key, Val, PrevKey, PrevVal]),
             case should_add_key_to_level(Level, KeyHash) of
                 true ->
                     io:format("Adding at ~p ~p ~n", [Level, Key]),
-                    add_kv(Db, ReduceIdxPrefix, Level, Key, Val);
+                    add_kv(TxDb, ReduceIdxPrefix, Level, Key, Val);
                 false ->
 %%                    {PrevKey, NewVal} = rereduce(<<"_stats">>, {PrevKey, PrevVal}, {Key, Val}),
 %%                    io:format("RE_REDUCE ~p ~p ~p ~p ~n", [Level, Key, PrevKey, NewVal]),
-                    add_kv(Db, ReduceIdxPrefix, Level, PrevKey, PrevVal)
+                    add_kv(TxDb, ReduceIdxPrefix, Level, PrevKey, PrevVal)
             end
         end, Levels)
     end).
+
+get_value(TxDb, ReduceIdxPrefix, Level, Key) ->
+    #{
+        tx := Tx
+    } = TxDb,
+    EK = create_key(ReduceIdxPrefix, Level, Key),
+    io:format("FF ~p ~n", [Key]),
+    Out = case erlfdb:wait(erlfdb:get(Tx, EK)) of
+        not_found ->
+            not_found;
+        PackedValue ->
+            io:format("HERE ~p ~n", [PackedValue]),
+            {_, Value} = get_key_value(PackedValue),
+            Value
+    end,
+    io:format("GETTING ~p ~p ~n", [Key, Out]),
+    Out.
 
 
 get_previous_key(TxDb, ReduceIdxPrefix, Level, Key) ->

@@ -226,6 +226,11 @@ write_docs(TxDb, Mrst, Docs, State) ->
     } = State,
 
     ViewIds = [View#mrview.id_num || View <- Views],
+    ViewsIdFuns = lists:foldl(fun (View, Acc) ->
+        Id = View#mrview.id_num,
+        [{_Name, ReduceFun}] = View#mrview.reduce_funs,
+        Acc ++ [{Id, ReduceFun}]
+    end, [], Views),
 
     %%  First build of the view
     if ViewSeq /= <<>> -> ok; true ->
@@ -233,7 +238,7 @@ write_docs(TxDb, Mrst, Docs, State) ->
     end,
 
     lists:foreach(fun(Doc) ->
-        couch_views_fdb:write_doc(TxDb, Sig, ViewIds, Doc)
+        couch_views_fdb:write_doc(TxDb, Sig, ViewsIdFuns, Doc)
     end, Docs),
 
     couch_views_fdb:set_update_seq(TxDb, Sig, LastSeq).

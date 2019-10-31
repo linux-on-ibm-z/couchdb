@@ -191,6 +191,18 @@ reduce(<<"_count">>, Results) ->
     end, #{}, Results),
     maps:to_list(ReduceResults);
 
+reduce(<<"_sum">>, Results) ->
+    ReduceResults = lists:foldl(fun ({Key, Val}, Acc) ->
+        case maps:is_key(Key, Acc) of
+            true ->
+                #{Key := Sum} = Acc,
+                Acc#{Key := Val + Sum};
+            false ->
+                Acc#{Key => Val}
+        end
+    end, #{}, Results),
+    maps:to_list(ReduceResults);
+
 % this isn't a real supported reduce function in CouchDB
 % But I want a basic reduce function that when we need to update the index
 % we would need to re-read multiple rows instead of being able to do an
