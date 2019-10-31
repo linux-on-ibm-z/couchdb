@@ -15,7 +15,7 @@
 
 -export([
     run_reduce/2,
-    read_reduce/6,
+    read_reduce/7,
     setup_reduce_indexes/3
 ]).
 
@@ -30,7 +30,7 @@
 -define(MAX_SKIP_LIST_LEVELS, 6).
 
 
-read_reduce(Db, Sig, ViewId, UserCallback, UserAcc0, Args) ->
+read_reduce(Db, Sig, ViewId, Reducer, UserCallback, UserAcc0, Args) ->
     #{
         db_prefix := DbPrefix
     } = Db,
@@ -38,8 +38,15 @@ read_reduce(Db, Sig, ViewId, UserCallback, UserAcc0, Args) ->
 %%    Levels = lists:seq(0, ?MAX_SKIP_LIST_LEVELS),
     ReduceIdxPrefix = reduce_skip_list_idx_prefix(DbPrefix, Sig, ViewId),
     #mrargs{
-        limit = Limit
+        limit = Limit,
+        group = Group,
+        group_level = GroupLevel
     } = Args,
+
+    GroupLevel1 = case Group of
+        true -> group_true;
+        _ -> GroupLevel
+    end,
 
     Opts = args_to_fdb_opts(Args, ReduceIdxPrefix),
 
@@ -59,7 +66,7 @@ read_reduce(Db, Sig, ViewId, UserCallback, UserAcc0, Args) ->
             },
 
             Fun = fun handle_row/3,
-            Acc1 = couch_views_reduce_fdb:fold_level0(TxDb, Sig, ViewId, Opts, Fun, Acc0),
+            Acc1 = couch_views_reduce_fdb:fold_level0(TxDb, Sig, ViewId, Reducer, GroupLevel, Opts, Fun, Acc0),
             #{
                 user_acc := UserAcc1
             } = Acc1,

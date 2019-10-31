@@ -60,16 +60,16 @@ defmodule CouchViewsReduceTest do
   test "group_level=1 count reduce", context do
       args = %{
           :reduce => true,
-          :group => true,
+          :group_level => 1,
       }
 
       {:ok, res} = run_query(context, args, "dates")
       IO.inspect(res, label: "OUT")
 
       assert res == [
-                 {:row, [key: [2017], value: 1]},
-                 {:row, [key: [2018], value: 1]},
-                 {:row, [key: [2019], value: 1]}
+                 {:row, [key: [2017], value: 4]},
+                 {:row, [key: [2018], value: 3]},
+                 {:row, [key: [2019], value: 2]}
              ]
   end
 
@@ -221,7 +221,7 @@ defmodule CouchViewsReduceTest do
       [2019, 4, 1]
     ]
 
-    for i <- 1..4 do
+    for i <- 1..10 do
       group =
         if rem(i, 3) == 0 do
           "first"
@@ -235,7 +235,6 @@ defmodule CouchViewsReduceTest do
          {"some", "field"},
          {"group", group},
          {"date", Enum.at(dates, i - 1)}
-         #           {"timestamp", Enum.at(timestamps, i - 1)}
        ]})
     end
   end
@@ -254,25 +253,25 @@ defmodule CouchViewsReduceTest do
                  }
                 """},
                {"reduce", "_count"}
-             ]}},
-           {"baz",
-            {[
-               {"map",
-                """
-                function(doc) {
-                  emit(doc.value, doc.value);
-                  emit(doc.value, doc.value);
-                  emit([doc.value, 1], doc.value);
-                  emit([doc.value, doc.value + 1, doc.group.length], doc.value);
-
-                  if (doc.value === 3) {
-                    emit([1, 1, 5], 1);
-                    emit([doc.value, 1, 5], 1);
-                  }
-                 }
-                """},
-               {"reduce", "_count"}
              ]}}
+#           {"baz",
+#            {[
+#               {"map",
+#                """
+#                function(doc) {
+#                  emit(doc.value, doc.value);
+#                  emit(doc.value, doc.value);
+#                  emit([doc.value, 1], doc.value);
+#                  emit([doc.value, doc.value + 1, doc.group.length], doc.value);
+#
+#                  if (doc.value === 3) {
+#                    emit([1, 1, 5], 1);
+#                    emit([doc.value, 1, 5], 1);
+#                  }
+#                 }
+#                """},
+#               {"reduce", "_count"}
+#             ]}}
            #             {"boom",
            #              {[
            #                 {"map",

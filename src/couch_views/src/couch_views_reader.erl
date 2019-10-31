@@ -32,7 +32,8 @@ read_reduce(Db, Mrst, ViewName, UserCallback, UserAcc0, Args) ->
     } = Mrst,
 
     ViewId = get_view_id(Lang, Args, ViewName, Views),
-    couch_views_reduce:read_reduce(Db, Sig, ViewId, UserCallback,
+    Reducer = get_view_reducer(Lang, Args, ViewName, Views),
+    couch_views_reduce:read_reduce(Db, Sig, ViewId, Reducer, UserCallback,
         UserAcc0, Args).
 %%    Fun = fun handle_reduce_row/3,
 %%
@@ -241,6 +242,12 @@ get_view_id(Lang, Args, ViewName, Views) ->
     case couch_mrview_util:extract_view(Lang, Args, ViewName, Views) of
         {map, View, _Args} -> View#mrview.id_num;
         {red, {_Idx, _Lang, View}, _Args} -> View#mrview.id_num
+    end.
+
+get_view_reducer(Lang, Args, ViewName, Views) ->
+    case couch_mrview_util:extract_view(Lang, Args, ViewName, Views) of
+        {map, View, _Args} -> throw(no_reduce);
+        View -> couch_mrview_util:extract_view_reduce(View)
     end.
 
 
