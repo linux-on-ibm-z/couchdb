@@ -87,7 +87,32 @@ init() ->
         design_opts => Mrst#mrst.design_opts
     },
 
-    update(Db, Mrst, State).
+    try
+        update(Db, Mrst, State)
+    catch
+        exit:normal ->
+            ok;
+        error:{erlfdb_error, 2101} ->
+            couch_jobs:finish(undefined, Job, Data#{
+                error => transaction_too_large,
+                reason => <<"Transaction exceeds byte limit">>
+            });
+        error:{erlfdb_error, 1031} ->
+            couch_jobs:finish(undefined, Job, Data#{
+                error => transaction_timed_out,
+                reason => <<"Operation aborted because the transaction timed out">>
+            });
+        error:{erlfdb_error, Code} ->
+            couch_jobs:finish(undefined, Job, Data#{
+                error => foundationdb_error,
+                reason => integer_to_binary(Code)
+            });
+        Error:Reason  ->
+            couch_jobs:finish(undefined, Job, Data#{
+                error => Error,
+                reason => Reason
+            })
+    end.
 
 
 update(#{} = Db, Mrst0, State0) ->
