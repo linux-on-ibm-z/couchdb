@@ -109,8 +109,8 @@ init() ->
             });
         Error:Reason  ->
             couch_jobs:finish(undefined, Job, Data#{
-                error => Error,
-                reason => Reason
+                error => couch_util:to_binary(Error),
+                reason => couch_util:to_binary(Reason)
             })
     end.
 
