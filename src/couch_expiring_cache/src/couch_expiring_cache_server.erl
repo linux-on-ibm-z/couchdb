@@ -42,7 +42,7 @@ init(_) ->
     {ok, #{
         timer_ref => Ref,
         lag => 0,
-        last_expiration => 0,
+        last_removal => 0,
         min_ts => 0}}.
 
 
@@ -58,15 +58,15 @@ handle_cast(Msg, St) ->
     {stop, {bad_cast, Msg}, St}.
 
 
-handle_info(remove_expired, St) ->
+handle_info(remove_expired, St = #{min_ts := MinTS0}) ->
     Now = erlang:system_time(second),
-    MinTS = remove_expired(Now),
+    MinTS = max(MinTS0, remove_expired(Now)),
     Ref = schedule_remove_expired(),
     {noreply, St#{
-        timer_ref => Ref,
-        lag => Now - MinTS,
-        last_expiration => Now,
-        min_ts => MinTS}};
+        timer_ref := Ref,
+        lag := Now - MinTS,
+        last_removal := Now,
+        min_ts := MinTS}};
 
 handle_info(Msg, St) ->
     {stop, {bad_info, Msg}, St}.
