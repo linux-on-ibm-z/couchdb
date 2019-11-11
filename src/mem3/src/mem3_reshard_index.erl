@@ -100,15 +100,7 @@ mrview_indices(DbName, Doc) ->
 
 
 dreyfus_indices(DbName, Doc) ->
-    try
-        Indices = dreyfus_index:design_doc_to_indexes(Doc),
-        [{dreyfus, DbName, Index} || Index <- Indices]
-    catch
-        Tag:Err ->
-            Msg = "~p couldn't get dreyfus indices ~p ~p ~p:~p",
-            couch_log:error(Msg, [?MODULE, DbName, Doc, Tag, Err]),
-            []
-    end.
+    [].
 
 
 hastings_indices(DbName, Doc) ->
