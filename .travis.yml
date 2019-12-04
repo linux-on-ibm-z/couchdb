@@ -1,5 +1,6 @@
 language: elixir
 elixir: 1.7.4
+
 os: linux
 arch: s390x
 dist: xenial
